@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 
@@ -21,6 +21,8 @@ export default function AllPerks() {
   
   const [error, setError] = useState('')
 
+  const debounceRef = useRef(null)
+
   // ==================== SIDE EFFECTS WITH useEffect HOOK ====================
 
  /*
@@ -30,7 +32,22 @@ export default function AllPerks() {
 
 */
 
-  
+  // Hook #1: initial load of all perks when page mounts
+  useEffect(() => {
+    loadAllPerks({ search: '', merchant: '' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Hook #2: auto-search (debounced) whenever searchQuery or merchantFilter changes
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      loadAllPerks({ search: searchQuery.trim(), merchant: merchantFilter.trim() })
+    }, 350)
+    return () => clearTimeout(debounceRef.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, merchantFilter])
+
   useEffect(() => {
     // Extract all merchant names from perks array
     const merchants = perks
@@ -47,8 +64,8 @@ export default function AllPerks() {
     // This effect depends on [perks], so it re-runs whenever perks changes
   }, [perks]) // Dependency: re-run when perks array changes
 
-  
-  async function loadAllPerks() {
+  // loadAllPerks now accepts optional overrides to avoid relying on stale state
+  async function loadAllPerks({ search = undefined, merchant = undefined } = {}) {
     // Reset error state before new request
     setError('')
     
@@ -56,18 +73,25 @@ export default function AllPerks() {
     setLoading(true)
     
     try {
+      // Build params object using provided overrides or current state
+      const params = {}
+      if (typeof search !== 'undefined') {
+        if (search) params.search = search
+      } else if (searchQuery.trim()) {
+        params.search = searchQuery.trim()
+      }
+
+      if (typeof merchant !== 'undefined') {
+        if (merchant) params.merchant = merchant
+      } else if (merchantFilter.trim()) {
+        params.merchant = merchantFilter.trim()
+      }
+
       // Make GET request to /api/perks/all with query parameters
-      const res = await api.get('/perks/all', {
-        params: {
-          // Only include search param if searchQuery is not empty
-          search: searchQuery.trim() || undefined,
-          // Only include merchant param if merchantFilter is not empty
-          merchant: merchantFilter.trim() || undefined
-        }
-      })
+      const res = await api.get('/perks/all', { params: Object.keys(params).length ? params : undefined })
       
       // Update perks state with response data
-      setPerks(res.data.perks)
+      setPerks(res.data.perks || [])
       
     } catch (err) {
       // Handle errors (network failure, server error, etc.)
@@ -90,16 +114,16 @@ export default function AllPerks() {
     
     // Immediately reload perks with current search and filter values
     // This bypasses the debounce delay for instant results
-    loadAllPerks()
+    loadAllPerks({ search: searchQuery.trim(), merchant: merchantFilter.trim() })
   }
 
   
   function handleReset() {
     // Reset search and filter states to empty
-    // The useEffect with [searchQuery, merchantFilter] dependencies
-    // will automatically trigger and reload all perks
     setSearchQuery('')
     setMerchantFilter('')
+    // Immediately reload all perks (pass empty overrides so API returns all)
+    loadAllPerks({ search: '', merchant: '' })
   }
 
   
@@ -136,7 +160,8 @@ export default function AllPerks() {
                 type="text"
                 className="input"
                 placeholder="Enter perk name..."
-                
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
               />
               <p className="text-xs text-zinc-500 mt-1">
                 Auto-searches as you type, or press Enter / click Search
@@ -151,7 +176,8 @@ export default function AllPerks() {
               </label>
               <select
                 className="input"
-                
+                value={merchantFilter}
+                onChange={(e) => setMerchantFilter(e.target.value)}
               >
                 <option value="">All Merchants</option>
                 
@@ -198,7 +224,7 @@ export default function AllPerks() {
               <span className="material-symbols-outlined">error</span>
               <p>{error}</p>
             </div>
-            <button onClick={loadAllPerks} className="btn text-sm">
+            <button onClick={() => loadAllPerks({ search: searchQuery.trim(), merchant: merchantFilter.trim() })} className="btn text-sm">
               Try Again
             </button>
           </div>
@@ -217,7 +243,7 @@ export default function AllPerks() {
           
           <Link
             key={perk._id}
-           
+            to={`/perks/${perk._id}`}
             className="card hover:shadow-lg transition-shadow cursor-pointer"
           >
             {/* Perk Title */}
